@@ -4,7 +4,8 @@ set -e
 
 if [[ $TRAVIS_OS_NAME == "osx" ]]; then
   wget https://github.com/stedolan/jq/releases/download/jq-1.5/jq-osx-amd64
-  sudo mv jq-osx-amd64 /usr/local/bin/jq
+  mv jq-osx-amd64 jq
+  export PATH=$PATH:$PWD
   jq --version
 fi
 
