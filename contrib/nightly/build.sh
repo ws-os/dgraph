@@ -6,7 +6,12 @@ set -e
 # 2. A new tag is pushed i.e. when we make a new release.
 # 3. A release is updated.
 run_upload_script() {
-	if [[ $TRAVIS_TAG == "nightly" ]]; then
+  # So that script can run locally too.
+  if [[ "$TRAVIS" != true ]]; then
+    return 0
+  fi
+
+  if [[ $TRAVIS_TAG == "nightly" ]]; then
 		# We create nightly tag using the script so we don't want to run this script
 		# when the nightly build is triggered on updating where the commit points too.
 		echo "Nightly tag. Skipping script"
@@ -14,7 +19,7 @@ run_upload_script() {
 	fi
 
 	# We run a cron job daily on Travis which will update the nightly binaries.
-	if [ $TRAVIS_EVENT_TYPE == "cron" ] && [ "$TRAVIS" = true ]; then
+	if [ $TRAVIS_EVENT_TYPE == "cron" ]; then
 		if [ "$TRAVIS_BRANCH"  != "master" ];then
 			echo "Cron job can only be run on master branch"
 			return 1
@@ -110,7 +115,9 @@ SHA_FILE_NAME="dgraph-checksum-${OS}-amd64-${DGRAPH_VERSION}${ASSET_SUFFIX}.sha2
 SHA_FILE="${GOPATH}/src/github.com/dgraph-io/dgraph/${SHA_FILE_NAME}"
 ASSETS_FILE="${GOPATH}/src/github.com/dgraph-io/dgraph/assets.tar.gz"
 CURRENT_BRANCH=$TRAVIS_BRANCH
-CURRENT_DIR=$(pwd)
+
+WINDOWS_TAR_NAME="dgraph-windows-amd64-${DGRAPH_VERSION}${ASSET_SUFFIX}.tar.gz"
+NIGHTLY_WINDOWS_FILE="${GOPATH}/src/github.com/dgraph-io/dgraph/$WINDOWS_TAR_NAME"
 
 update_or_create_asset() {
 	local release_id=$1
@@ -173,10 +180,10 @@ upload_assets() {
 	local sha_name="dgraph-checksum-${OS}-amd64-${DGRAPH_VERSION}${ASSET_SUFFIX}.sha256"
 	update_or_create_asset $release_id $sha_name ${SHA_FILE}
 
-
 	if [[ $TRAVIS_OS_NAME == "linux" ]]; then
 		# As asset would be the same on both platforms, we only upload it from linux.
 		update_or_create_asset $release_id "assets.tar.gz" ${ASSETS_FILE}
+    	upload_or_create_asset $release_id $WINDOWS_TAR_NAME $NIGHTLY_WINDOWS_FILE
 
 		# We dont want to update description programatically for version releases and commit apart from
 		# nightly.
@@ -246,6 +253,13 @@ upload_docker_image() {
 pushd $DGRAPH > /dev/null
 echo "Building embedded binaries"
 contrib/releases/build.sh $ASSET_SUFFIX
+if [[ $TRAVIS_OS_NAME == "linux" ]]; then
+	contrib/releases/build-windows.sh $ASSET_SUFFIX
+fi
+
+if [[ $DOCKER_TAG == "" ]]; then
+  DOCKER_TAG=$LATEST_TAG
+fi
 build_docker_image
 
 if [ "$TRAVIS" = true ]; then
