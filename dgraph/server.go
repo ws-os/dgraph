@@ -279,6 +279,10 @@ func (s *Server) Run(ctx context.Context, req *protos.Request) (resp *protos.Res
 	return resp, err
 }
 
+func (s *Server) CommitOrAbort(ctx context.Context, txn *protos.TxnContext) (*protos.Payload, error) {
+	return worker.CommitOverNetwork(ctx, txn)
+}
+
 func (s *Server) CheckVersion(ctx context.Context, c *protos.Check) (v *protos.Version, err error) {
 	if err := x.HealthCheck(); err != nil {
 		if tr, ok := trace.FromContext(ctx); ok {

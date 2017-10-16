@@ -102,7 +102,7 @@ func commitMutations(ctx context.Context, tc *protos.TxnContext) error {
 			return err
 		}
 	}
-	return posting.CommitMutations(tc.Keys, tc.CommitTs)
+	return posting.CommitMutations(tc, groups().ServesTablet(tc.Primary))
 }
 
 // This is serialized with mutations, called after applied watermarks catch up
@@ -402,6 +402,15 @@ func proposeOrSend(ctx context.Context, gid uint32, m *protos.Mutations, chr cha
 	chr <- res
 }
 
+func setPrimary(src *protos.Mutations, edge *protos.DirectedEdge) {
+	if len(src.PrimaryAttr) == 0 {
+		return
+	}
+	if groups().ServesTablet(edge.Attr) {
+		src.PrimaryAttr = edge.Attr
+	}
+}
+
 // addToMutationArray adds the edges to the appropriate index in the mutationArray,
 // taking into account the op(operation) and the attribute.
 func addToMutationMap(mutationMap map[uint32]*protos.Mutations, src *protos.Mutations) error {
@@ -413,6 +422,10 @@ func addToMutationMap(mutationMap map[uint32]*protos.Mutations, src *protos.Muta
 			mutationMap[gid] = mu
 		}
 		mu.Edges = append(mu.Edges, edge)
+		setPrimary(src, edge)
+	}
+	if len(src.Edges) > 0 && len(src.PrimaryAttr) == 0 {
+		src.PrimaryAttr = src.Edges[0].Attr
 	}
 	for _, schema := range src.Schema {
 		gid := groups().BelongsTo(schema.Predicate)
@@ -442,16 +455,25 @@ type res struct {
 	ctx *protos.TxnContext
 }
 
+func CommitOverNetwork(ctx context.Context, txn *protos.TxnContext) (*protos.Payload, error) {
+	// TODO: Propose and do this over network.
+	// TODO: Do this first over primary, then others.
+	if txn.CommitTs == 0 {
+		return nil, abortMutations(ctx, txn)
+	} else {
+		return nil, commitMutations(ctx, txn)
+	}
+}
+
 // MutateOverNetwork checks which group should be running the mutations
 // according to the group config and sends it to that instance.
 func MutateOverNetwork(ctx context.Context, m *protos.Mutations) (*protos.TxnContext, error) {
 	tctx := &protos.TxnContext{StartTs: m.StartTs}
-	// TODO: Set primary attribute here.
-
 	mutationMap := make(map[uint32]*protos.Mutations)
 	if err := addToMutationMap(mutationMap, m); err != nil {
 		return tctx, err
 	}
+	tctx.Primary = m.PrimaryAttr
 
 	resCh := make(chan res, len(mutationMap))
 	for gid, mu := range mutationMap {
@@ -480,7 +502,7 @@ func MutateOverNetwork(ctx context.Context, m *protos.Mutations) (*protos.TxnCon
 	return tctx, e
 }
 
-func (w *grpcWorker) CommitOrAbortTxn(ctx context.Context, tc *protos.TxnContext) (*protos.Payload, error) {
+func (w *grpcWorker) CommitOrAbort(ctx context.Context, tc *protos.TxnContext) (*protos.Payload, error) {
 	if tc.CommitTs == 0 {
 		err := abortMutations(ctx, tc)
 		return &protos.Payload{}, err

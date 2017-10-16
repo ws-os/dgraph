@@ -170,13 +170,19 @@ func checkCommitStatusHelper(key []byte, vs uint64) (uint64, bool, error) {
 
 // Writes all commit keys of the transaction.
 // Called after all mutations are committed in memory.
-func CommitMutations(keys []string, commitTs uint64) error {
+func CommitMutations(tx *protos.TxnContext, writeLock bool) error {
 	txn := pstore.NewTransaction(true)
 	defer txn.Discard()
 
+	if writeLock {
+		var buf [8]byte
+		binary.BigEndian.PutUint64(buf[:], tx.CommitTs)
+		if err := txn.Set(x.LockKey(tx.Primary), buf, nil); err != nil {
+			return err
+		}
+	}
 	for _, k := range keys {
-		err := txn.Set([]byte(k), nil, bitCommitMarker)
-		if err != nil {
+		if err := txn.Set([]byte(k), nil, bitCommitMarker); err != nil {
 			return nil
 		}
 	}
