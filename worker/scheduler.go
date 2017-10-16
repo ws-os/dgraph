@@ -164,11 +164,6 @@ func (s *scheduler) schedule(proposal *protos.Proposal, index uint64) error {
 		}
 	}
 
-	ctx, txn := s.n.props.CtxAndTxn(proposal.Id)
-	if s.n.ServesTable(txn.PrimaryAttr) {
-		lk := x.LockKey(txn.PrimaryAttr)
-
-	}
 	for _, edge := range proposal.Mutations.Edges {
 		t := &task{
 			rid:  index,

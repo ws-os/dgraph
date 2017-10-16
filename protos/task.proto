@@ -358,8 +358,9 @@ message ExportPayload {
 
 message TxnContext {
   repeated string keys = 1;
-	uint64 start_ts = 2;
-	uint64 commit_ts = 3;
+  string primary = 2;
+	uint64 start_ts = 3;
+	uint64 commit_ts = 4;
 }
 
 service Raft {
@@ -400,8 +401,8 @@ service Dgraph {
 }
 
 message Assigned {
-  map<string, uint64> Uids = 1;
-	repeated string keys = 2;
+  map<string, uint64> uids = 1;
+  TxnContext context = 2;
 }
 
 message Num {

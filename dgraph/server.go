@@ -170,7 +170,7 @@ func (s *Server) Mutate(ctx context.Context, mu *protos.Mutation) (resp *protos.
 	m := protos.Mutations{Edges: edges, Schema: mu.Schema, StartTs: mu.StartTs}
 	// Now fill in the primary attribute.
 	for _, e := range edges {
-		if e.Op == DirectedEdge_SET {
+		if e.Op == protos.DirectedEdge_SET {
 			m.PrimaryAttr = e.Attr
 			break
 		}
@@ -179,7 +179,7 @@ func (s *Server) Mutate(ctx context.Context, mu *protos.Mutation) (resp *protos.
 		// No set edge. Just pick the first.
 		m.PrimaryAttr = edges[0].Attr
 	}
-	resp.Keys, err = query.ApplyMutations(ctx, &m)
+	resp.Context, err = query.ApplyMutations(ctx, &m)
 	return resp, err
 }
 

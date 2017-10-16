@@ -358,11 +358,14 @@ func proposeOrSend(ctx context.Context, gid uint32, m *protos.Mutations, chr cha
 	if groups().ServesGroup(gid) {
 		node := groups().Node
 		// we don't timeout after proposing
-		txn := &posting.Txn{StartTs: m.StartTs, PrimaryAttr: m.PrimaryAttr}
-		res.err = node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m}, txn)
-		if res.err != nil {
-			res.keys = txn.Keys()
+		txn := &posting.Txn{
+			StartTs:       m.StartTs,
+			PrimaryAttr:   m.PrimaryAttr,
+			ServesPrimary: groups().ServesTablet(m.PrimaryAttr),
 		}
+		res.err = node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m}, txn)
+		res.ctx = &protos.TxnContext{}
+		txn.Fill(res.ctx)
 		chr <- res
 		return
 	}
@@ -378,18 +381,23 @@ func proposeOrSend(ctx context.Context, gid uint32, m *protos.Mutations, chr cha
 	}
 	conn := pl.Get()
 
+	var tc *protos.TxnContext
 	c := protos.NewWorkerClient(conn)
+
 	ch := make(chan error, 1)
 	go func() {
-		tc, err := c.Mutate(ctx, m)
-		res.keys = tc.Keys
-		res.err = err
+		var err error
+		tc, err = c.Mutate(ctx, m)
 		ch <- err
 	}()
+
 	select {
 	case <-ctx.Done():
 		res.err = ctx.Err()
-	case <-ch:
+		res.ctx = nil
+	case err := <-ch:
+		res.err = err
+		res.ctx = tc
 	}
 	chr <- res
 }
@@ -426,35 +434,32 @@ func addToMutationMap(mutationMap map[uint32]*protos.Mutations, src *protos.Muta
 			mu.DropAll = true
 		}
 	}
-
-	// Update start ts and primary attribute.
-	for _, mu := range mutationMap {
-		mu.StartTs = src.StartTs
-		mu.PrimaryAttr = src.PrimaryAttr
-	}
 	return nil
 }
 
 type res struct {
-	err  error
-	keys []string
+	err error
+	ctx *protos.TxnContext
 }
 
 // MutateOverNetwork checks which group should be running the mutations
 // according to the group config and sends it to that instance.
-func MutateOverNetwork(ctx context.Context, m *protos.Mutations) ([]string, error) {
-	var keys []string
+func MutateOverNetwork(ctx context.Context, m *protos.Mutations) (*protos.TxnContext, error) {
+	tctx := &protos.TxnContext{StartTs: m.StartTs}
+	// TODO: Set primary attribute here.
+
 	mutationMap := make(map[uint32]*protos.Mutations)
 	if err := addToMutationMap(mutationMap, m); err != nil {
-		return keys, err
+		return tctx, err
 	}
 
 	resCh := make(chan res, len(mutationMap))
 	for gid, mu := range mutationMap {
 		if gid == 0 {
-			return keys, errUnservedTablet
+			return tctx, errUnservedTablet
 		}
 		mu.StartTs = m.StartTs
+		mu.PrimaryAttr = m.PrimaryAttr
 		go proposeOrSend(ctx, gid, mu, resCh)
 	}
 
@@ -469,10 +474,10 @@ func MutateOverNetwork(ctx context.Context, m *protos.Mutations) ([]string, erro
 				tr.LazyPrintf("Error while running all mutations: %+v", res.err)
 			}
 		}
-		keys = append(keys, res.keys...)
+		tctx.Keys = append(tctx.Keys, res.ctx.Keys...)
 	}
 	close(resCh)
-	return keys, e
+	return tctx, e
 }
 
 func (w *grpcWorker) CommitOrAbortTxn(ctx context.Context, tc *protos.TxnContext) (*protos.Payload, error) {
@@ -501,10 +506,12 @@ func (w *grpcWorker) Mutate(ctx context.Context, m *protos.Mutations) (*protos.T
 		defer tr.Finish()
 	}
 
-	txn := &posting.Txn{StartTs: m.StartTs, PrimaryAttr: m.PrimaryAttr}
-	err := node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m}, txn)
-	if err != nil {
-		txnCtx.Keys = txn.Keys()
+	txn := &posting.Txn{
+		StartTs:       m.StartTs,
+		PrimaryAttr:   m.PrimaryAttr,
+		ServesPrimary: groups().ServesTablet(m.PrimaryAttr),
 	}
+	err := node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m}, txn)
+	txn.Fill(txnCtx)
 	return txnCtx, err
 }

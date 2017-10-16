@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/dgraph/x"
 )
 
-func ApplyMutations(ctx context.Context, m *protos.Mutations) ([]string, error) {
+func ApplyMutations(ctx context.Context, m *protos.Mutations) (*protos.TxnContext, error) {
 	if worker.Config.ExpandEdge {
 		err := handleInternalEdge(ctx, m)
 		if err != nil {
@@ -31,13 +31,13 @@ func ApplyMutations(ctx context.Context, m *protos.Mutations) ([]string, error) 
 			}
 		}
 	}
-	keys, err := worker.MutateOverNetwork(ctx, m)
+	tctx, err := worker.MutateOverNetwork(ctx, m)
 	if err != nil {
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf("Error while MutateOverNetwork: %+v", err)
 		}
 	}
-	return keys, err
+	return tctx, err
 }
 
 func handleInternalEdge(ctx context.Context, m *protos.Mutations) error {
