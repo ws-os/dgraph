@@ -358,7 +358,7 @@ func proposeOrSend(ctx context.Context, gid uint32, m *protos.Mutations, chr cha
 	if groups().ServesGroup(gid) {
 		node := groups().Node
 		// we don't timeout after proposing
-		txn := &posting.Txn{StartTs: m.StartTs}
+		txn := &posting.Txn{StartTs: m.StartTs, PrimaryAttr: m.PrimaryAttr}
 		res.err = node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m}, txn)
 		if res.err != nil {
 			res.keys = txn.Keys()
@@ -396,8 +396,8 @@ func proposeOrSend(ctx context.Context, gid uint32, m *protos.Mutations, chr cha
 
 // addToMutationArray adds the edges to the appropriate index in the mutationArray,
 // taking into account the op(operation) and the attribute.
-func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutations) error {
-	for _, edge := range m.Edges {
+func addToMutationMap(mutationMap map[uint32]*protos.Mutations, src *protos.Mutations) error {
+	for _, edge := range src.Edges {
 		gid := groups().BelongsTo(edge.Attr)
 		mu := mutationMap[gid]
 		if mu == nil {
@@ -406,7 +406,7 @@ func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutati
 		}
 		mu.Edges = append(mu.Edges, edge)
 	}
-	for _, schema := range m.Schema {
+	for _, schema := range src.Schema {
 		gid := groups().BelongsTo(schema.Predicate)
 		mu := mutationMap[gid]
 		if mu == nil {
@@ -416,7 +416,7 @@ func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutati
 		mu.Schema = append(mu.Schema, schema)
 	}
 
-	if m.DropAll {
+	if src.DropAll {
 		for _, gid := range groups().KnownGroups() {
 			mu := mutationMap[gid]
 			if mu == nil {
@@ -427,6 +427,11 @@ func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutati
 		}
 	}
 
+	// Update start ts and primary attribute.
+	for _, mu := range mutationMap {
+		mu.StartTs = src.StartTs
+		mu.PrimaryAttr = src.PrimaryAttr
+	}
 	return nil
 }
 
@@ -485,18 +490,18 @@ func (w *grpcWorker) Mutate(ctx context.Context, m *protos.Mutations) (*protos.T
 	if ctx.Err() != nil {
 		return txnCtx, ctx.Err()
 	}
-
-	// TODO: Use ServesTablet instead.
 	if !groups().ServesGroup(m.GroupId) {
 		return txnCtx, x.Errorf("This server doesn't serve group id: %v", m.GroupId)
 	}
+
 	node := groups().Node
 	if rand.Float64() < Config.Tracing {
 		var tr trace.Trace
 		tr, ctx = x.NewTrace("GrpcMutate", ctx)
 		defer tr.Finish()
 	}
-	txn := &posting.Txn{StartTs: m.StartTs}
+
+	txn := &posting.Txn{StartTs: m.StartTs, PrimaryAttr: m.PrimaryAttr}
 	err := node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m}, txn)
 	if err != nil {
 		txnCtx.Keys = txn.Keys()

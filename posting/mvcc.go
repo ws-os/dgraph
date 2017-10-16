@@ -40,7 +40,9 @@ func commitTimestamp(startTs uint64) (commitTs uint64, aborted bool, err error) 
 }
 
 type Txn struct {
-	StartTs uint64
+	StartTs     uint64
+	PrimaryAttr string
+
 	// atomic
 	aborted uint32
 	// Fields which can changed after init
@@ -74,6 +76,7 @@ func (t *Txn) Keys() []string {
 	var keys []string
 	t.Lock()
 	defer t.Unlock()
+	keys = append(keys, t.PrimaryKey)
 	for k, _ := range t.m {
 		keys = append(keys, k)
 	}
@@ -85,7 +88,7 @@ func (t *Txn) Keys() []string {
 
 // Write All deltas per transaction at once.
 // Called after all mutations are applied in memory and checked for locks/conflicts.
-func (t *Txn) CommitDeltas() error {
+func (t *Txn) WriteDeltas() error {
 	if t == nil {
 		return nil
 	}
@@ -125,6 +128,7 @@ func (t *Txn) CommitDeltas() error {
 			return err
 		}
 	}
+	lk := x.LockKey(t.PrimaryAttr)
 	return txn.CommitAt(t.StartTs, nil)
 }
 

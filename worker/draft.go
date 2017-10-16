@@ -109,7 +109,7 @@ func (p *proposals) Done(pid uint32, err error) {
 		return
 	}
 	delete(p.ids, pid)
-	if err = pd.txn.CommitDeltas(); err != nil {
+	if err = pd.txn.WriteDeltas(); err != nil {
 		abortMutations(pd.ctx, &protos.TxnContext{
 			Keys:    pd.txn.Keys(),
 			StartTs: pd.txn.StartTs,
@@ -202,7 +202,7 @@ func (h *header) Decode(in []byte) {
 
 func (n *node) ProposeAndWait(ctx context.Context, proposal *protos.Proposal, txn *posting.Txn) error {
 	if n.Raft() == nil {
-		return x.Errorf("RAFT isn't initialized yet")
+		return x.Errorf("Raft isn't initialized yet")
 	}
 	// TODO: Should be based on number of edges (amount of work)
 	pendingProposals <- struct{}{}
@@ -216,7 +216,10 @@ func (n *node) ProposeAndWait(ctx context.Context, proposal *protos.Proposal, tx
 	// be persisted, we do best effort schema check while writing
 	if proposal.Mutations != nil {
 		if proposal.Mutations.StartTs == 0 {
-			return x.Errorf("StartTs cannot be zero")
+			return x.Errorf("StartTs cannot be zero.")
+		}
+		if len(proposal.Mutations.PrimaryAttr) == 0 {
+			return x.Errorf("Primary attribute cannot be empty.")
 		}
 		proposal.StartTs = proposal.Mutations.StartTs
 		for _, edge := range proposal.Mutations.Edges {
