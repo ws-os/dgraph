@@ -444,9 +444,10 @@ func (l *List) addMutation(ctx context.Context, t *protos.DirectedEdge) (bool, e
 		}
 	}
 
-	// All edges with a value without LANGTAG, have the same uid. In other words,
-	// an (entity, attribute) can only have one untagged value.
-	if !bytes.Equal(t.Value, nil) {
+	// All non-language and non-list values have the same uid, meaning there is
+	// only 1 per (entity, attribute). Multiple languages are allowed, as are
+	// values for a list predicate.
+	if t.ValueId == 0 {
 		// There could be a collision if the user gives us a value with Lang = "en" and later gives
 		// us a value = "en" for the same predicate. We would end up overwritting his older lang
 		// value.

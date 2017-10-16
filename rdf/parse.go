@@ -56,6 +56,11 @@ func sane(s string) bool {
 	return false
 }
 
+type optStr struct {
+	val     string
+	present bool
+}
+
 // Parse parses a mutation string and returns the NQuad representation for it.
 func Parse(line string) (protos.NQuad, error) {
 	var rnq protos.NQuad
@@ -65,7 +70,7 @@ func Parse(line string) (protos.NQuad, error) {
 	l.Run(lexText)
 
 	it := l.NewIterator()
-	var oval string
+	var obj optStr
 	var vend bool
 	isCommentLine := false
 	// We read items from the l.Items channel to which the lexer sends items.
@@ -108,12 +113,11 @@ L:
 			}
 		case itemLiteral:
 			var err error
-			oval, err = strconv.Unquote(item.Val)
+			obj.val, err = strconv.Unquote(item.Val)
+			obj.present = true
+
 			if err != nil {
 				return rnq, x.Wrapf(err, "while unquoting")
-			}
-			if oval == "" {
-				oval = "_nil_"
 			}
 
 		case itemLanguage:
@@ -121,12 +125,12 @@ L:
 
 			// if lang tag is specified then type is set to string
 			// grammar allows either ^^ iriref or lang tag
-			if len(oval) > 0 {
-				rnq.ObjectValue = &protos.Value{&protos.Value_DefaultVal{oval}}
-				oval = ""
+			if obj.present {
+				rnq.ObjectValue = &protos.Value{&protos.Value_DefaultVal{obj.val}}
+				obj = optStr{}
 			}
 		case itemObjectType:
-			if len(oval) == 0 {
+			if !obj.present {
 				log.Fatalf(
 					"itemObject should be emitted before itemObjectType. Input: [%s]",
 					line)
@@ -145,11 +149,8 @@ L:
 			if !ok {
 				return rnq, x.Errorf("Unrecognized rdf type %s", val)
 			}
-			if oval == "_nil_" && t != types.StringID {
-				return rnq, x.Errorf("Invalid ObjectValue")
-			}
 			src := types.ValueForType(types.StringID)
-			src.Value = []byte(oval)
+			src.Value = []byte(obj.val)
 			p, err := types.Convert(src, t)
 			if err != nil {
 				return rnq, err
@@ -158,7 +159,7 @@ L:
 			if rnq.ObjectValue, err = types.ObjectValue(t, p.Value); err != nil {
 				return rnq, err
 			}
-			oval = ""
+			obj = optStr{}
 
 		case lex.ItemError:
 			return rnq, x.Errorf(item.Val)
@@ -198,8 +199,8 @@ L:
 	if isCommentLine {
 		return rnq, ErrEmpty
 	}
-	if len(oval) > 0 {
-		rnq.ObjectValue = &protos.Value{&protos.Value_DefaultVal{oval}}
+	if obj.present {
+		rnq.ObjectValue = &protos.Value{&protos.Value_DefaultVal{obj.val}}
 	}
 	if (len(rnq.Subject) == 0 && len(rnq.SubjectVar) == 0) || len(rnq.Predicate) == 0 {
 		return rnq, x.Errorf("Empty required fields in NQuad. Input: [%s]", line)

@@ -347,9 +347,6 @@ func addInternalNode(pc *SubGraph, uid uint64, dst outputNode) error {
 	if !ok || sv.Value == nil {
 		return nil
 	}
-	if sv.Tid == types.StringID && sv.Value.(string) == "_nil_" {
-		sv.Value = ""
-	}
 	dst.AddValue(fieldName, sv)
 	return nil
 }
@@ -521,10 +518,6 @@ func (sg *SubGraph) preTraverse(uid uint64, dst outputNode) error {
 					continue
 				} else if convErr != nil {
 					return convErr
-				}
-				// Only strings can have empty values.
-				if sv.Tid == types.StringID && sv.Value.(string) == "_nil_" {
-					sv.Value = ""
 				}
 				if !pc.Params.Normalize {
 					dst.AddValue(fieldName, sv)

@@ -1591,9 +1591,6 @@ L:
 				return nil, err
 			}
 			val += v
-			if val == "" {
-				return nil, x.Errorf("Empty argument received")
-			}
 
 			if isDollar {
 				val = "$" + val
