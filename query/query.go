@@ -492,11 +492,6 @@ func (sg *SubGraph) preTraverse(uid uint64, dst outputNode) error {
 				continue
 			}
 
-			tv := pc.valueMatrix[idx]
-			if bytes.Equal(tv.Values[0].Val, x.Nilbyte) {
-				continue
-			}
-
 			if pc.Params.Facet != nil && len(pc.facetsMatrix[idx].FacetsList) > 0 {
 				fc := dst.New(fieldName)
 				// in case of Value we have only one Facets
@@ -550,7 +545,7 @@ func convertWithBestEffort(tv *protos.TaskValue, attr string) (types.Val, error)
 	if !v.Tid.IsScalar() {
 		return v, x.Errorf("Leaf predicate:'%v' must be a scalar.", attr)
 	}
-	if bytes.Equal(tv.Val, nil) {
+	if bytes.Equal(tv.Val, nil) && v.Tid != types.StringID && v.Tid != types.DefaultID {
 		return v, ErrEmptyVal
 	}
 
