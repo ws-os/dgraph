@@ -29,6 +29,10 @@ import (
 )
 
 func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error {
+	fmt.Println("[expandRecurse] START")
+	DebugSubgraph(start, "")
+	fmt.Println()
+
 	// Note: Key format is - "attr|fromUID|toUID"
 	reachMap := make(map[string]struct{})
 	var numEdges int
@@ -42,6 +46,7 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 	start.Children = start.Children[:0]
 
 	// Process the root first.
+	//AssertSorted(start)
 	go ProcessGraph(ctx, start, nil, rrch)
 	select {
 	case err = <-rrch:
@@ -58,11 +63,15 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 		return ctx.Err()
 	}
 
+	//AssertSorted(start)
+
 	// Add children back so that expandSubgraph can expand them if needed.
 	start.Children = append(start.Children, startChildren...)
 	if startChildren, err = expandSubgraph(ctx, start); err != nil {
 		return err
 	}
+
+	//AssertSorted(start)
 
 	start.Children = start.Children[:0]
 	for _, child := range startChildren {
@@ -72,7 +81,10 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 		temp.Params.Var = child.Params.Var
 		exec = append(exec, temp)
 		start.Children = append(start.Children, temp)
+		//AssertSorted(temp)
 	}
+
+	//AssertSorted(start)
 
 	dummy := &SubGraph{}
 	var depth uint64
@@ -84,6 +96,7 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 
 		rrch := make(chan error, len(exec))
 		for _, sg := range exec {
+			//AssertSorted(sg)
 			go ProcessGraph(ctx, sg, dummy, rrch)
 		}
 
@@ -114,9 +127,11 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 		}
 
 		for _, sg := range exec {
+			//AssertSorted(sg)
 			if len(sg.Filters) > 0 {
 				// We need to do this in case we had some filters.
 				sg.updateUidMatrix()
+				//AssertSorted(sg)
 			}
 			for mIdx, fromUID := range sg.SrcUIDs.Uids {
 				// This is for avoiding loops in graph.
@@ -136,14 +151,19 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 			if len(sg.Params.Order) > 0 {
 				// Can't use merge sort if the UIDs are not sorted.
 				sg.updateDestUids()
+				//AssertSorted(sg)
 			} else {
+				//AssertSorted(sg)
+				fmt.Println("UID_MATRIX->DEST_UIDS:", sg.uidMatrix)
 				sg.DestUIDs = algo.MergeSorted(sg.uidMatrix)
+				//AssertSorted(sg)
 			}
 		}
 
 		// modify the exec and attach child nodes.
 		var out []*SubGraph
 		for _, sg := range exec {
+			//AssertSorted(sg)
 			if len(sg.DestUIDs.Uids) == 0 {
 				continue
 			}
@@ -154,6 +174,7 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 				temp.Params.Var = child.Params.Var
 				sg.Children = append(sg.Children, temp)
 				out = append(out, temp)
+				//AssertSorted(temp)
 			}
 		}
 
@@ -163,6 +184,9 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 		}
 
 		if len(out) == 0 {
+			fmt.Println("[expandRecurse] END")
+			DebugSubgraph(start, "")
+			fmt.Println("")
 			return nil
 		}
 		exec = out

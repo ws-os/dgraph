@@ -1766,12 +1766,15 @@ func expandSubgraph(ctx context.Context, sg *SubGraph) ([]*SubGraph, error) {
 // ProcessGraph processes the SubGraph instance accumulating result for the query
 // from different instances. Note: taskQuery is nil for root node.
 func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
+	//AssertSorted(sg)
+	//AssertSorted(parent)
 	if sg.Attr == "_uid_" {
 		// We dont need to call ProcessGraph for _uid_, as we already have uids
 		// populated from parent and there is nothing to process but uidMatrix
 		// and values need to have the right sizes so that preTraverse works.
 		sg.appendDummyValues()
 		rch <- nil
+		//AssertSorted(sg)
 		return
 	}
 	var err error
@@ -1790,6 +1793,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			sg.uidMatrix = []*protos.List{{o}}
 			sort.Slice(sg.DestUIDs.Uids, func(i, j int) bool { return sg.DestUIDs.Uids[i] < sg.DestUIDs.Uids[j] })
 		}
+		//AssertSorted(sg)
 	} else if len(sg.Attr) == 0 {
 		// This is when we have uid function in children.
 		if sg.SrcFunc != nil && sg.SrcFunc.Name == "uid" {
@@ -1797,9 +1801,11 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			// and return.
 			if err := sg.fillVars(sg.Params.ParentVars); err != nil {
 				rch <- err
+				//AssertSorted(sg)
 				return
 			}
 			algo.IntersectWith(sg.DestUIDs, sg.SrcUIDs, sg.DestUIDs)
+			//AssertSorted(sg)
 			rch <- nil
 			return
 		}
@@ -1811,6 +1817,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		// Each filter use it's own (shallow) copy of SrcUIDs, so there is no race conditions,
 		// when multiple filters replace their sg.DestUIDs
 		sg.DestUIDs = &protos.List{sg.SrcUIDs.Uids}
+		//AssertSorted(sg)
 	} else {
 
 		if sg.SrcFunc != nil && isInequalityFn(sg.SrcFunc.Name) && sg.SrcFunc.IsValueVar {
@@ -1818,6 +1825,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			err = sg.ApplyIneqFunc()
 			if parent != nil {
 				rch <- err
+				//AssertSorted(sg)
 				return
 			}
 		} else {
@@ -1827,6 +1835,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 					tr.LazyPrintf("Error while processing task: %+v", err)
 				}
 				rch <- err
+				//AssertSorted(sg)
 				return
 			}
 			result, err := worker.ProcessTaskOverNetwork(ctx, taskQuery)
@@ -1835,13 +1844,16 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 					tr.LazyPrintf("Error while processing task: %+v", err)
 				}
 				rch <- err
+				//AssertSorted(sg)
 				return
 			}
 
+			//AssertSorted(sg)
 			sg.uidMatrix = result.UidMatrix
 			sg.valueMatrix = result.ValueMatrix
 			sg.facetsMatrix = result.FacetMatrix
 			sg.counts = result.Counts
+			//AssertSorted(sg)
 
 			if sg.Params.DoCount {
 				if len(sg.Filters) == 0 {
@@ -1850,6 +1862,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 						tr.LazyPrintf("Zero uids. Only count requested")
 					}
 					rch <- nil
+					//AssertSorted(sg)
 					return
 				}
 				sg.counts = make([]uint32, len(sg.uidMatrix))
@@ -1865,6 +1878,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 				// I'm root. We reach here if root had a function.
 				sg.uidMatrix = []*protos.List{sg.DestUIDs}
 			}
+			//AssertSorted(sg)
 		}
 	}
 
@@ -1882,8 +1896,11 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		}
 		sg.Children = out // Remove any expand nodes we might have added.
 		rch <- nil
+		//AssertSorted(sg)
 		return
 	}
+
+	//AssertSorted(sg)
 
 	// Run filters if any.
 	if len(sg.Filters) > 0 {
@@ -1903,6 +1920,8 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			filter.SrcUIDs = sg.DestUIDs
 			// Passing the pointer is okay since the filter only reads.
 			filter.Params.ParentVars = sg.Params.ParentVars // Pass to the child.
+			//AssertSorted(sg)
+			//AssertSorted(filter)
 			go ProcessGraph(ctx, filter, sg, filterChan)
 		}
 
@@ -1920,6 +1939,7 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 
 		if filterErr != nil {
 			rch <- filterErr
+			//AssertSorted(sg)
 			return
 		}
 
@@ -1945,31 +1965,42 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			lists = append(lists, sg.DestUIDs)
 			sg.DestUIDs = algo.IntersectSorted(lists)
 		}
+		//AssertSorted(sg)
 	}
+
+	//AssertSorted(sg)
 
 	if len(sg.Params.Order) == 0 && len(sg.Params.FacetOrder) == 0 {
 		// There is no ordering. Just apply pagination and return.
 		if err = sg.applyPagination(ctx); err != nil {
 			rch <- err
+			//AssertSorted(sg)
 			return
 		}
 	} else {
 		// If we are asked for count, we don't need to change the order of results.
 		if !sg.Params.DoCount {
 			// We need to sort first before pagination.
+			//AssertSorted(sg)
 			if err = sg.applyOrderAndPagination(ctx); err != nil {
 				rch <- err
 				return
 			}
+			//AssertSorted(sg)
 		}
 	}
+
+	//AssertSorted(sg)
 
 	// We store any variable defined by this node in the map and pass it on
 	// to the children which might depend on it.
 	if err = sg.assignVars(sg.Params.ParentVars, []*SubGraph{}); err != nil {
 		rch <- err
+		//AssertSorted(sg)
 		return
 	}
+
+	//AssertSorted(sg)
 
 	// Here we consider handling count with filtering. We do this after
 	// pagination because otherwise, we need to do the count with pagination
@@ -1987,13 +2018,19 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			sg.counts[i] = uint32(len(ul.Uids))
 		}
 		rch <- nil
+		//AssertSorted(sg)
 		return
 	}
 
+	//AssertSorted(sg)
+
 	if sg.Children, err = expandSubgraph(ctx, sg); err != nil {
+		//AssertSorted(sg)
 		rch <- err
 		return
 	}
+
+	//AssertSorted(sg)
 
 	if sg.IsGroupBy() {
 		// Add the attrs required by groupby nodes
@@ -2009,6 +2046,8 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 		}
 	}
 
+	//AssertSorted(sg)
+
 	childChan := make(chan error, len(sg.Children))
 	for i := 0; i < len(sg.Children); i++ {
 		child := sg.Children[i]
@@ -2017,11 +2056,15 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 			child.Params.ParentVars[k] = v
 		}
 
+		//AssertSorted(child)
 		child.SrcUIDs = sg.DestUIDs // Make the connection.
+		//AssertSorted(child)
 		if child.IsInternal() {
 			// We dont have to execute these nodes.
 			continue
 		}
+		//AssertSorted(child)
+		//AssertSorted(sg)
 		go ProcessGraph(ctx, child, sg, childChan)
 	}
 
@@ -2037,7 +2080,9 @@ func ProcessGraph(ctx context.Context, sg, parent *SubGraph, rch chan error) {
 				tr.LazyPrintf("Error while processing child task: %+v", err)
 			}
 		}
+		//AssertSorted(sg)
 	}
+	//AssertSorted(sg) // -- triggers
 	rch <- childErr
 }
 
@@ -2071,7 +2116,10 @@ func (sg *SubGraph) applyOrderAndPagination(ctx context.Context) error {
 
 	// See if we need to apply order based on facet.
 	if len(sg.Params.FacetOrder) != 0 {
-		return sg.sortAndPaginateUsingFacet(ctx)
+		//AssertSorted(sg)
+		err := sg.sortAndPaginateUsingFacet(ctx)
+		//AssertSorted(sg)
+		return err
 	}
 
 	for _, it := range sg.Params.NeedsVar {
@@ -2153,6 +2201,7 @@ func (sg *SubGraph) sortAndPaginateUsingFacet(ctx context.Context) error {
 		if len(values) == 0 {
 			continue
 		}
+		//AssertSorted(sg)
 		if err := types.SortWithFacet(values, &protos.List{uids},
 			facetList, []bool{sg.Params.FacetOrderDesc}); err != nil {
 			return err
@@ -2160,6 +2209,7 @@ func (sg *SubGraph) sortAndPaginateUsingFacet(ctx context.Context) error {
 		sg.uidMatrix[i].Uids = uids
 		// We need to update the facetmarix corresponding to changes to uidmatrix.
 		sg.facetsMatrix[i].FacetsList = facetList
+		//AssertSorted(sg)
 	}
 
 	if sg.Params.Count != 0 || sg.Params.Offset != 0 {
@@ -2174,6 +2224,7 @@ func (sg *SubGraph) sortAndPaginateUsingFacet(ctx context.Context) error {
 
 	// Update the destUids as we might have removed some UIDs.
 	sg.updateDestUids()
+	//AssertSorted(sg)
 	return nil
 }
 
@@ -2379,6 +2430,7 @@ func (sg *SubGraph) upsert(ctx context.Context) (uint64, error) {
 
 	// TODO - Optionally ApplyMutations could return the uid and then we can avoid this call.
 	che := make(chan error, 1)
+	//AssertSorted(sg)
 	ProcessGraph(ctx, sg, nil, che)
 	return res.StartId, <-che
 }
@@ -2495,6 +2547,7 @@ func (req *QueryRequest) ProcessQuery(ctx context.Context) (map[string]uint64, e
 					errChan <- Recurse(ctx, sg)
 				}()
 			} else {
+				//AssertSorted(sg)
 				go ProcessGraph(ctx, sg, nil, errChan)
 			}
 			if tr, ok := trace.FromContext(ctx); ok {
